@@ -781,18 +781,15 @@ def _convert_response_chunk_to_streaming_chunk(  # noqa: PLR0911
             content="",
             component_info=component_info,
             index=chunk.output_index,
-            start=not any(c.meta.get("refusal") for c in previous_chunks if c.index == chunk.output_index),
+            start=not any(c.meta.get("refusal") for c in reversed(previous_chunks) if c.index == chunk.output_index),
             meta={**chunk.to_dict(), "refusal": chunk.delta, "received_at": datetime.now().isoformat()},
         )
 
     elif chunk.type == "response.output_text.delta":
-        # Start is determined by checking if this is the first text delta event of a new output_index
-        # 1) Check if all previous chunks have different output_index
-        # 2) If any chunks do have the same output_index, check if they have content
-        # If none of them have content, this is the start of a new text output
-        start = all(c.index != chunk.output_index for c in previous_chunks) or all(
-            c.content == "" for c in previous_chunks if c.index == chunk.output_index
-        )
+        # This is the start of a new text output if no previous chunk with the same output_index has content.
+        # We scan backwards because the previous text delta is usually the last chunk, which keeps this check
+        # constant-time per chunk instead of rescanning every earlier chunk (e.g. long reasoning streams).
+        start = not any(c.content for c in reversed(previous_chunks) if c.index == chunk.output_index)
         return StreamingChunk(
             content=chunk.delta,
             component_info=component_info,
